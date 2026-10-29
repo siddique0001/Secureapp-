@@ -1,1 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Premium Member Cards</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Poppins:wght@300;400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
+<style>
+/* (Yahan aapka pura CSS same rahega jo pichli baar tha. Space bachane ke liye maine CSS collapse kar diya hai, aap apna purana CSS yahan paste kar lein) */
+:root{--bg:#07070b;--surface:#101018;--border:rgba(255,255,255,0.08);--gold:#d4af37;--gold-l:#f0d878;--text:#f3f3f7;--muted:#8b8b99;--danger:#ff4d5e;--success:#25d07a;--warn:#ffb020;}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Poppins',sans-serif}
+body{background:var(--bg);color:var(--text);min-height:100vh;}
+.screen{display:none!important}.screen.active{display:block!important}
+.header{padding:20px;text-align:center;color:var(--gold-l);font-family:'Playfair Display';font-size:24px}
+.field{margin-bottom:15px} .field input{width:100%;padding:14px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:#fff}
+.btn{padding:14px;border-radius:10px;font-weight:600;width:100%;cursor:pointer;border:none;margin-bottom:10px}
+.btn-primary{background:linear-gradient(135deg,var(--gold-l),var(--gold));color:#000}
+.btn-ghost{background:var(--surface);border:1px solid var(--border);color:#fff}
+.login-wrap{max-width:400px;margin:50px auto;background:var(--surface);padding:30px;border-radius:20px}
+/* Card CSS (Simplified for example) */
+.pcard{width:900px;height:500px;background:linear-gradient(135deg,#08090f,#1a1120);border-radius:28px;position:relative;color:#fff;padding:40px;border:2px solid var(--gold)}
+.pcard-name{font-size:40px;font-family:'Playfair Display'} .pcard-shop{font-size:26px;color:var(--gold-l)}
+.pcard-qr{position:absolute;right:40px;top:50%;transform:translateY(-50%);background:#fff;padding:15px;border-radius:15px}
+.card-view-wrap{width:100%;overflow:hidden;display:flex;justify-content:center}
+.card-scaler{width:900px;height:500px;transform-origin:top center}
+#rubik-loader{position:fixed;inset:0;background:#000;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.loader-text{color:var(--gold);margin-top:20px;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:0.5}}
+body.public-view header.top,body.public-view .admin-only{display:none!important}
+</style>
+</head>
+<body>
+
+<div id="rubik-loader"><div class="loader-text">SECURE LOADING...</div></div>
+
+<div class="app" style="max-width:1080px;margin:0 auto;padding:20px;">
+  <header class="top" id="mainHeader" style="display:none;justify-content:space-between;margin-bottom:20px;">
+    <div style="color:var(--gold);font-weight:bold;font-size:20px;">Premium Cards</div>
+    <button class="btn-ghost" style="width:auto;padding:5px 15px" onclick="handleLogout()">Logout</button>
+  </header>
+
+  <!-- LOGIN SCREEN -->
+  <section class="screen" id="loginScreen">
+    <div class="login-wrap">
+      <h2 style="color:var(--gold);margin-bottom:20px;text-align:center">Admin Login</h2>
+      <div class="field"><input id="loginPass" type="password" placeholder="Enter Secure Password" /></div>
+      <button class="btn btn-primary" onclick="handleLogin()">Login</button>
+    </div>
+  </section>
+
+  <!-- HOME SCREEN -->
+  <section class="screen" id="homeScreen">
+    <div style="display:flex;gap:10px;margin-bottom:20px">
+      <button class="btn btn-primary" onclick="showScreen('newCardScreen')">+ Create Card</button>
+      <button class="btn btn-ghost" onclick="showScreen('scanScreen')">📷 Scan QR</button>
+    </div>
+    <div id="cardsList">Loading cards...</div>
+  </section>
+
+  <!-- CREATE CARD SCREEN -->
+  <section class="screen" id="newCardScreen">
+    <button class="btn btn-ghost" style="width:auto;margin-bottom:15px" onclick="showScreen('homeScreen')">← Back</button>
+    <h2 style="margin-bottom:15px">New Card</h2>
+    <div class="field"><input id="fName" placeholder="Customer Name" /></div>
+    <div class="field"><input id="fMobile" placeholder="WhatsApp Number" /></div>
+    <div class="field"><input id="fEmail" placeholder="Email (Optional)" /></div>
+    <div class="field"><input id="fShop" placeholder="Shop Name" /></div>
+    <button class="btn btn-primary" onclick="createCard()" id="btnCreate">Generate Card</button>
+  </section>
+
+  <!-- CARD VIEW SCREEN -->
+  <section class="screen" id="cardScreen">
+    <button class="btn btn-ghost admin-only" style="width:auto;margin-bottom:15px" onclick="showScreen('homeScreen')">← Back</button>
+    <div class="card-view-wrap"><div class="card-scaler" id="cardScaler"></div></div>
+    <div id="cardActions" style="margin-top:20px;text-align:center"></div>
+  </section>
+
+</div>
+
+<script>
+// NO FIREBASE CONFIG HERE! NO SECRET KEYS HERE!
+// Everything is handled by the /api endpoint securely.
+
+let currentToken = localStorage.getItem("secure_token") || null;
+let currentCard = null;
+
+const $ = (id) => document.getElementById(id);
+
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  $(id).classList.add("active");
+}
+
+// API CALL HELPER
+async function callAPI(action, payload = {}, isGet = false) {
+  let url = `/api?action=${action}`;
+  let options = { method: isGet ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' } };
+  
+  if (!isGet) options.body = JSON.stringify({ action, ...payload });
+  
+  const res = await fetch(url, options);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "API Error");
+  return data;
+}
+
+// LOGIN
+async function handleLogin() {
+  const pass = $("loginPass").value;
+  try {
+    const res = await callAPI("login", { password: pass });
+    currentToken = res.token;
+    localStorage.setItem("secure_token", currentToken);
+    $("mainHeader").style.display = "flex";
+    showScreen("homeScreen");
+    loadAdminCards();
+  } catch (e) { alert(e.message); }
+}
+
+function handleLogout() {
+  localStorage.removeItem("secure_token");
+  window.location.reload();
+}
+
+// LOAD CARDS
+async function loadAdminCards() {
+  try {
+    const res = await callAPI("get-all-cards", {}, false); 
+    // Note: For GET with token, we pass token in URL params for simplicity
+    const url = `/api?action=get-all-cards&token=${currentToken}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if(!data.cards) throw new Error("Failed to load");
+    
+    $("cardsList").innerHTML = data.cards.map(c => `
+      <div style="background:var(--surface);padding:15px;border-radius:10px;margin-bottom:10px;cursor:pointer" onclick="openCard('${c._key}')">
+        <b style="color:var(--gold)">${c.customerName}</b><br>
+        <small>${c.customerId} | Exp: ${new Date(c.expiryDate).toLocaleDateString()}</small>
+      </div>
+    `).join("");
+  } catch (e) { $("cardsList").innerHTML = `<div style="color:red">${e.message}</div>`; }
+}
+
+// CREATE CARD
+async function createCard() {
+  const data = {
+    name: $("fName").value,
+    mobile: $("fMobile").value,
+    email: $("fEmail").value,
+    shopName: $("fShop").value || "My Shop"
+  };
+  
+  if(!data.name || !data.mobile) return alert("Name and Mobile required");
+  
+  $("btnCreate").innerText = "Encrypting & Saving...";
+  $("btnCreate").disabled = true;
+
+  try {
+    const res = await callAPI("create-card", { cardData: data, token: currentToken });
+    alert("Card Created Securely!");
+    openCardData(res.card);
+  } catch (e) { alert(e.message); }
+  finally { $("btnCreate").innerText = "Generate Card"; $("btnCreate").disabled = false; }
+}
+
+// PUBLIC VIEW (URL PARAM)
+(async function init() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const cardId = urlParams.get('card');
+
+  if (cardId) {
+    document.body.classList.add("public-view");
+    try {
+      const res = await callAPI("get-card", {}, true); // handled below
+      const url = `/api?action=get-card&cardId=${cardId}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if(data.card) openCardData(data.card, true);
+      else document.body.innerHTML = "<h2 style='color:white;text-align:center;padding:50px'>Card Not Found</h2>";
+    } catch(e) { alert("Error loading card"); }
+  } else {
+    if(currentToken) {
+      $("mainHeader").style.display = "flex";
+      showScreen("homeScreen");
+      loadAdminCards();
+    } else {
+      showScreen("loginScreen");
+    }
+    document.getElementById('rubik-loader').style.display = 'none';
+  }
+})();
+
+function openCard(key) {
+  callAPI("get-card", {}, true).then(() => {});
+  fetch(`/api?action=get-card&cardId=${key}`).then(r=>r.json()).then(data => {
+    if(data.card) openCardData(data.card);
+  });
+}
+
+// RENDER CARD & QR (Frontend logic remains safe)
+async function openCardData(card, isPublic = false) {
+  currentCard = card;
+  document.getElementById('rubik-loader').style.display = 'none';
+  
+  const token = card.qrToken;
+  const scaler = $("cardScaler");
+  
+  scaler.innerHTML = `
+    <div class="pcard">
+      <div style="font-size:12px;letter-spacing:4px;color:rgba(240,216,120,0.8)">MEMBER OF</div>
+      <div class="pcard-shop">${card.shopName}</div>
+      <div style="margin-top:50px">
+        <div style="font-size:10px;letter-spacing:4px">CARDHOLDER</div>
+        <div class="pcard-name">${card.customerName}</div>
+        <div style="margin-top:10px;background:rgba(212,175,55,0.1);display:inline-block;padding:5px 10px;border-radius:5px;color:var(--gold)">${card.customerId}</div>
+      </div>
+      <div style="position:absolute;bottom:40px;left:40px">
+        <div style="font-size:10px;letter-spacing:4px">VALID THRU</div>
+        <div style="font-size:20px;font-family:monospace">${new Date(card.expiryDate).toLocaleDateString()}</div>
+      </div>
+      <div class="pcard-qr"><canvas id="qrCanvas" width="200" height="200"></canvas></div>
+    </div>
+  `;
+
+  // Generate QR on frontend (using token provided by backend)
+  const qr = window.qrcode(0, "M");
+  qr.addData(token);
+  qr.make();
+  const count = qr.getModuleCount();
+  const cell = 200 / (count + 8);
+  const ctx = $("qrCanvas").getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0,0,200,200);
+  ctx.fillStyle = "#000";
+  for (let r=0; r<count; r++) for (let c=0; c<count; c++) if(qr.isDark(r,c)) ctx.fillRect((c+4)*cell, (r+4)*cell, cell, cell);
+
+  // Fit scale
+  const s = Math.min(window.innerWidth / 900, 1);
+  scaler.style.transform = `scale(${s})`;
+  scaler.style.marginBottom = (-500 * (1 - s)) + "px";
+
+  showScreen("cardScreen");
+  
+  if(!isPublic) {
+     $("cardActions").innerHTML = `
+       <button class="btn btn-primary" onclick="handleCopyLink('${card._key || 'KEY'}')">Copy Link</button>
+     `;
+  }
+}
+
+// SCAN QR
+async function handleScanValue(qrText) {
+  alert("Scanning... Please wait.");
+  try {
+    const res = await callAPI("scan-qr", { qrText: qrText });
+    alert(`✅ VERIFIED!\nName: ${res.card.customerName}\nScans: ${res.card.scanCount}`);
+  } catch(e) { alert("❌ Invalid QR: " + e.message); }
+}
+</script>
+</body>
+      </html>
