@@ -1,1 +1,8 @@
-
+{
+  "name": "premium-cards-secure",
+  "version": "1.0.0",
+  "dependencies": {
+    "firebase-admin": "^11.11.0",
+    "crypto-js": "^4.2.0"
+  }
+}
